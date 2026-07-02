@@ -11,6 +11,16 @@ export type FilterConfig = {
   filterType: FilterType;
 };
 
+/**
+ * A control descriptor sent to the UI. Carries the data derived from the
+ * selected layer's features (dropdown options, numeric range) so the UI can
+ * render the right control without touching the reearth API itself.
+ */
+export type FilterControl =
+  | { propertyName: string; filterType: "dropdown"; options: string[] }
+  | { propertyName: string; filterType: "range"; min: number; max: number }
+  | { propertyName: string; filterType: "text" };
+
 /** Drives which view the UI renders. */
 export type PanelStatus = "no-layer" | "no-config" | "ready";
 
@@ -19,9 +29,18 @@ export type PanelState = {
   status: PanelStatus;
   /** Resolved display name of the selected layer, if any. */
   layerName?: string;
-  /** Filter configuration read from the inspector. Populated from Chunk 2. */
-  filters?: FilterConfig[];
+  /** Controls to render, derived from the inspector config + layer features. */
+  controls?: FilterControl[];
 };
+
+/**
+ * The active value of a single control, sent from the UI on Apply. An empty
+ * dropdown/text value means "no constraint" for that property.
+ */
+export type FilterValue =
+  | { filterType: "dropdown"; value: string }
+  | { filterType: "range"; min: number; max: number }
+  | { filterType: "text"; value: string };
 
 /** Messages sent from the extension logic → UI. */
 export type LogicToUIMessage = {
@@ -29,9 +48,9 @@ export type LogicToUIMessage = {
   payload: PanelState;
 };
 
-/** Messages sent from the UI → extension logic. Wired up in later chunks. */
+/** Messages sent from the UI → extension logic. */
 export type UIToLogicMessage =
-  | { action: "apply"; payload: { values: Record<string, unknown> } }
+  | { action: "apply"; payload: { values: Record<string, FilterValue> } }
   | { action: "reset" };
 
 /**
