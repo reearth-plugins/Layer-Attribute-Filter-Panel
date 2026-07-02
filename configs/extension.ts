@@ -37,6 +37,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@distui": path.resolve(__dirname, "../dist-ui"),
+      "@": path.resolve(__dirname, "../src"),
     },
   },
 });

@@ -1,70 +1,29 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+import { useEffect, useState } from "react";
 
-import { MouseEventProps } from "@/shared/reearthTypes";
-import { hexToHSL, postMsg } from "@/shared/utils";
+import { type PanelState } from "@/shared/messages";
+
+/** Read the bootstrap state that index.html stashed from the __init__ message. */
+function readInitialState(): PanelState {
+  const data = (
+    window as Window & {
+      _reearth_plugin_extension_init_data_?: PanelState;
+    }
+  )._reearth_plugin_extension_init_data_;
+  return data ?? { status: "no-layer" };
+}
 
 export default () => {
-  const inited = useRef(false);
-
-  useLayoutEffect(() => {
-    if (!inited.current) {
-      const { primaryColor } =
-        (
-          window as Window & {
-            _reearth_plugin_extension_init_data_?: {
-              primaryColor?: string;
-            };
-          }
-        )._reearth_plugin_extension_init_data_ ?? {};
-
-      if (primaryColor) {
-        const hslColor = hexToHSL(primaryColor);
-        if (hslColor) {
-          document.documentElement.style.setProperty("--primary", hslColor);
-        }
-      }
-      inited.current = true;
-    }
-  }, []);
-
-  const handleFlyToTokyo = useCallback(() => {
-    postMsg("flyToTokyo");
-  }, []);
-
-  const [mouseLocation, setMouseLocation] = useState<{
-    lat: number | undefined;
-    lng: number | undefined;
-    height: number | undefined;
-  }>({
-    lng: 0,
-    lat: 0,
-    height: 0,
-  });
-
-  const handleMouseMove = useCallback((e: MouseEventProps) => {
-    setMouseLocation({
-      lng: e.lng,
-      lat: e.lat,
-      height: e.height,
-    });
-  }, []);
+  const [panelState, setPanelState] = useState<PanelState>(readInitialState);
 
   useEffect(() => {
-    return window.addEventListener("message", (e) => {
-      if (e.data.action === "mouseMove") {
-        handleMouseMove(e.data.payload);
+    const handleMessage = (e: MessageEvent) => {
+      if (e.data?.action === "panelState") {
+        setPanelState(e.data.payload as PanelState);
       }
-    });
-  }, [handleMouseMove]);
+    };
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, []);
 
-  return {
-    mouseLocation,
-    handleFlyToTokyo,
-  };
+  return { panelState };
 };

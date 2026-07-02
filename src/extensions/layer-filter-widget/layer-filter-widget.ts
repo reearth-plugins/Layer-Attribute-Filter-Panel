@@ -1,45 +1,50 @@
 import html from "@distui/layer-filter-widget/main/index.html?raw";
 
-import { GlobalThis, MouseEventProps } from "@/shared/reearthTypes";
-
-type WidgetProperty = { appearance?: { primary_color?: string } };
+import { INIT_ACTION, type PanelState } from "@/shared/messages";
+import { GlobalThis } from "@/shared/reearthTypes";
 
 const reearth = (globalThis as unknown as GlobalThis).reearth;
+
 reearth.ui.show(html);
 
-// Get message from UI
-reearth.extension.on("message", (message: unknown) => {
-  const msg = message as { action: string; payload?: any };
-  if (
-    msg &&
-    typeof msg === "object" &&
-    "action" in msg &&
-    msg.action === "flyToTokyo"
-  ) {
-    reearth.camera.flyTo(
-      { lat: 35.68505398711427, lng: 139.75584459383325, height: 5000 },
-      { duration: 1 }
-    );
-  }
-});
-
-const handleMouseMove = (e: MouseEventProps) => {
-  // Post message to UI
-  reearth.ui.postMessage({ action: "mouseMove", payload: e });
+/** Shape of the inspector configuration this widget reads (see reearth.yml). */
+type WidgetProperty = {
+  layer_settings?: { layer_name?: string };
 };
 
-reearth.viewer.on("mouseMove", handleMouseMove);
+/**
+ * Resolve the layer's display name: the inspector's Layer Name overrides,
+ * otherwise fall back to the selected layer's own title.
+ */
+function resolveLayerName(): string | undefined {
+  const property = reearth.extension.widget?.property as
+    | WidgetProperty
+    | undefined;
+  return (
+    property?.layer_settings?.layer_name || reearth.layers.selected?.layer?.title
+  );
+}
 
-// Post message to UI when initialize
-// !! NOTE !! You don't need to use this unless you need some initialize on first render
+/** Build the panel snapshot from the current selection. */
+function computePanelState(): PanelState {
+  if (!reearth.layers.selected) {
+    return { status: "no-layer" };
+  }
+  // Filter configuration is read in Chunk 2; a selected layer is "ready" for now.
+  return { status: "ready", layerName: resolveLayerName() };
+}
 
-// Binding event listener on UI by react will not be ready at this moment.
-// We need to add a data transformer to hold the initial message
-// Please check ./main/index.html for more details
-reearth.ui.postMessage({
-  action: "__init__",
-  payload: {
-    primaryColor: (reearth.extension.widget?.property as WidgetProperty)
-      ?.appearance?.primary_color,
-  },
+/** Push the latest panel state to the UI. */
+function pushPanelState(): void {
+  reearth.ui.postMessage({ action: "panelState", payload: computePanelState() });
+}
+
+// Rebuild the panel whenever the selected layer changes.
+reearth.layers.on("select", () => {
+  pushPanelState();
 });
+
+// Bootstrap the first render. The UI's message listener may not be attached on
+// first paint, so this goes through the __init__ channel that index.html stashes
+// on window for the React app to read once.
+reearth.ui.postMessage({ action: INIT_ACTION, payload: computePanelState() });

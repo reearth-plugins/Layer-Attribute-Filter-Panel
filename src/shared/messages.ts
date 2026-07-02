@@ -6,22 +6,22 @@
 export type FilterType = "dropdown" | "range" | "text";
 
 /** One filter entry as configured by the user in the Visualizer inspector. */
-export interface FilterConfig {
+export type FilterConfig = {
   propertyName: string;
   filterType: FilterType;
-}
+};
 
 /** Drives which view the UI renders. */
 export type PanelStatus = "no-layer" | "no-config" | "ready";
 
 /** Snapshot of everything the UI needs to render the panel at a point in time. */
-export interface PanelState {
+export type PanelState = {
   status: PanelStatus;
   /** Resolved display name of the selected layer, if any. */
   layerName?: string;
   /** Filter configuration read from the inspector. Populated from Chunk 2. */
   filters?: FilterConfig[];
-}
+};
 
 /** Messages sent from the extension logic → UI. */
 export type LogicToUIMessage = {
