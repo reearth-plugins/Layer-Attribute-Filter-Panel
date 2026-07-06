@@ -12,7 +12,7 @@ import { GlobalThis } from "@/shared/reearthTypes";
 
 const reearth = (globalThis as unknown as GlobalThis).reearth;
 
-reearth.ui.show(html);
+reearth.ui.show(html, { width: 300 });
 
 /** Shape of the inspector configuration this widget reads (see reearth.yml). */
 type WidgetProperty = {
@@ -24,6 +24,9 @@ type WidgetProperty = {
 type ComputedFeatureLike = { id?: string; properties?: Record<string, unknown> };
 
 const FILTER_TYPES: FilterType[] = ["dropdown", "range", "text"];
+
+/** The layer that currently has a filter override applied, if any. */
+let activeFilterLayerId: string | undefined;
 
 function widgetProperty(): WidgetProperty | undefined {
   return reearth.extension.widget?.property as WidgetProperty | undefined;
@@ -60,6 +63,10 @@ function parseFilterConfigs(): FilterConfig[] {
 
 function selectedFeatures(): ComputedFeatureLike[] {
   return (reearth.layers.selected?.features ?? []) as ComputedFeatureLike[];
+}
+
+function selectedLayerId(): string | undefined {
+  return reearth.layers.selected?.id as string | undefined;
 }
 
 /** Collect the non-empty values of one property across all features. */
@@ -146,8 +153,14 @@ function buildPredicate(values: Record<string, FilterValue>): string {
   return predicates.join(" && ");
 }
 
-function selectedLayerId(): string | undefined {
-  return reearth.layers.selected?.id as string | undefined;
+/** Remove any override previously applied to a layer. */
+function clearOverride(layerId: string | undefined): void {
+  if (!layerId) return;
+  try {
+    reearth.layers.override?.(layerId, null);
+  } catch {
+    return;
+  }
 }
 
 function applyFilters(values: Record<string, FilterValue>): void {
@@ -156,8 +169,8 @@ function applyFilters(values: Record<string, FilterValue>): void {
   const predicate = buildPredicate(values);
   try {
     if (!predicate) {
-      // No active constraints — clear any existing override.
-      reearth.layers.override?.(layerId, null);
+      clearOverride(layerId);
+      activeFilterLayerId = undefined;
       return;
     }
     const conditions: [string, string][] = [
@@ -172,6 +185,7 @@ function applyFilters(values: Record<string, FilterValue>): void {
       polyline: { show },
       model: { show },
     });
+    activeFilterLayerId = layerId;
   } catch {
     // Overriding can fail (e.g. unsupported appearance); per the ticket, leave
     // the layer unchanged rather than crash the map.
@@ -180,29 +194,36 @@ function applyFilters(values: Record<string, FilterValue>): void {
 }
 
 function resetFilters(): void {
-  const layerId = selectedLayerId();
-  if (!layerId) return;
-  try {
-    reearth.layers.override?.(layerId, null);
-  } catch {
-    return;
-  }
+  clearOverride(selectedLayerId());
+  activeFilterLayerId = undefined;
 }
 
 // Handle Apply / Reset coming from the UI.
-reearth.extension.on("message", (message: unknown) => {
+function handleUIMessage(message: unknown): void {
   const msg = message as {
     action?: string;
     payload?: { values?: Record<string, FilterValue> };
   };
   if (msg?.action === "apply") applyFilters(msg.payload?.values ?? {});
   else if (msg?.action === "reset") resetFilters();
-});
+}
 
-// Rebuild the panel whenever the selected layer changes.
-reearth.layers.on("select", () => {
+// When the selection changes to a different layer, reset everything: clear the
+// previously filtered layer's override and rebuild the panel for the new layer.
+function handleLayerSelect(): void {
+  if (activeFilterLayerId && activeFilterLayerId !== selectedLayerId()) {
+    clearOverride(activeFilterLayerId);
+    activeFilterLayerId = undefined;
+  }
   pushPanelState();
-});
+}
 
-// Bootstrap the first render via the __init__ channel (see index.html).
-reearth.ui.postMessage({ action: INIT_ACTION, payload: computePanelState() });
+// Guard startup so a failure here never takes down the map or sibling plugins.
+try {
+  reearth.extension.on("message", handleUIMessage);
+  reearth.layers.on("select", handleLayerSelect);
+  // Bootstrap the first render via the __init__ channel (see index.html).
+  reearth.ui.postMessage({ action: INIT_ACTION, payload: computePanelState() });
+} catch {
+  // Swallow: the plugin simply renders nothing rather than crashing.
+}
