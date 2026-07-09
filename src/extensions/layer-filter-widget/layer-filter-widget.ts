@@ -153,11 +153,20 @@ function buildPredicate(values: Record<string, FilterValue>): string {
   return predicates.join(" && ");
 }
 
-/** Remove any override previously applied to a layer. */
-function clearOverride(layerId: string | undefined): void {
+/**
+ * Restore a layer to full visibility. We explicitly force show=true on every
+ * appearance type rather than passing null to override(), because a null
+ * override does not reliably cancel a previously applied show-expression.
+ */
+function restoreLayerVisibility(layerId: string | undefined): void {
   if (!layerId) return;
   try {
-    reearth.layers.override?.(layerId, null);
+    reearth.layers.override?.(layerId, {
+      marker: { show: true },
+      polygon: { show: true },
+      polyline: { show: true },
+      model: { show: true },
+    });
   } catch {
     return;
   }
@@ -169,7 +178,7 @@ function applyFilters(values: Record<string, FilterValue>): void {
   const predicate = buildPredicate(values);
   try {
     if (!predicate) {
-      clearOverride(layerId);
+      restoreLayerVisibility(layerId);
       activeFilterLayerId = undefined;
       return;
     }
@@ -194,7 +203,7 @@ function applyFilters(values: Record<string, FilterValue>): void {
 }
 
 function resetFilters(): void {
-  clearOverride(selectedLayerId());
+  restoreLayerVisibility(selectedLayerId());
   activeFilterLayerId = undefined;
 }
 
@@ -212,7 +221,7 @@ function handleUIMessage(message: unknown): void {
 // previously filtered layer's override and rebuild the panel for the new layer.
 function handleLayerSelect(): void {
   if (activeFilterLayerId && activeFilterLayerId !== selectedLayerId()) {
-    clearOverride(activeFilterLayerId);
+    restoreLayerVisibility(activeFilterLayerId);
     activeFilterLayerId = undefined;
   }
   pushPanelState();
