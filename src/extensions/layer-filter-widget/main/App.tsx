@@ -1,4 +1,4 @@
-import useHooks from "./hooks";
+import useLayerFilterPanel from "./hooks";
 
 import {
   Card,
@@ -8,7 +8,7 @@ import {
 } from "@/shared/components/ui/card";
 
 function App() {
-  const { panelState } = useHooks();
+  const { panelState } = useLayerFilterPanel();
 
   return (
     <Card className="rounded-none border-0 shadow-none">

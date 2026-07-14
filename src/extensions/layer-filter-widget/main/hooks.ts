@@ -12,7 +12,7 @@ function readInitialState(): PanelState {
   return data ?? { status: "no-layer" };
 }
 
-export default () => {
+export default function useLayerFilterPanel() {
   const [panelState, setPanelState] = useState<PanelState>(readInitialState);
 
   useEffect(() => {
@@ -26,4 +26,4 @@ export default () => {
   }, []);
 
   return { panelState };
-};
+}
