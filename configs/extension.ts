@@ -28,13 +28,16 @@ export default defineConfig({
         extensionName,
         `${extensionName}.ts`,
       ),
-      name: `${extensionName}`,
+      // IIFE global name must be a legal JS identifier, so sanitize the
+      // extension name (which may contain hyphens, e.g. "layer-filter-widget").
+      name: extensionName.replace(/[^a-zA-Z0-9_$]/g, "_"),
       fileName: () => `${extensionName}.js`,
     },
   },
   resolve: {
     alias: {
       "@distui": path.resolve(__dirname, "../dist-ui"),
+      "@": path.resolve(__dirname, "../src"),
     },
   },
 });

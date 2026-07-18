@@ -1,16 +1,33 @@
-id: reearth-visualizer-plugin-shadcn-template
-name: Visualizer plugin shadcn template
+id: layer-filter-plugin
+name: Layer Filter
 version: 1.0.0
 extensions:
-  - id: demo
+  - id: layer-filter-widget
     type: widget
-    name: Demo
+    name: Layer Filter
     schema:
       groups:
-        - id: appearance
-          title: Appearance
+        - id: layer_settings
+          title: Layer Settings
           fields:
-            - id: primary_color
-              title: Primary color
+            - id: layer_name
               type: string
-              ui: color
+              title: Layer Name (optional)
+        - id: filters
+          title: Filter Properties
+          list: true
+          fields:
+            - id: property_name
+              type: string
+              title: Property Name
+            - id: filter_type
+              type: string
+              title: Filter Type
+              ui: selection
+              choices:
+                - key: dropdown
+                  label: Dropdown
+                - key: range
+                  label: Range Slider
+                - key: text
+                  label: Text Search
