@@ -84,8 +84,12 @@ function buildControl(config: FilterConfig): FilterControl {
     const nums = valuesFor(config.propertyName)
       .map((v) => Number(v))
       .filter((n) => !Number.isNaN(n));
-    const min = nums.length ? Math.min(...nums) : 0;
-    const max = nums.length ? Math.max(...nums) : 0;
+    // reduce instead of Math.min(...nums)/Math.max(...nums): spreading a very
+    // large feature array can exceed the JS argument limit and throw.
+    const min = nums.length ? nums.reduce((a, b) => (b < a ? b : a), Infinity) : 0;
+    const max = nums.length
+      ? nums.reduce((a, b) => (b > a ? b : a), -Infinity)
+      : 0;
     return { propertyName: config.propertyName, filterType: "range", min, max };
   }
   return { propertyName: config.propertyName, filterType: "text" };
@@ -121,7 +125,8 @@ function propRef(name: string): string {
 }
 
 function escapeRegex(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // Include "/" so a value like "foo/bar" can't terminate the /.../ literal early.
+  return value.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
 }
 
 /** Combine the active filter values into a single boolean show-expression. */
