@@ -131,11 +131,6 @@ function propRef(name: string): string {
   return "${" + name + "}";
 }
 
-function escapeRegex(value: string): string {
-  // Include "/" so a value like "foo/bar" can't terminate the /.../ literal early.
-  return value.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
-}
-
 /** Combine the active filter values into a single boolean show-expression. */
 function buildPredicate(values: Record<string, FilterValue>): string {
   const predicates: string[] = [];
@@ -147,7 +142,20 @@ function buildPredicate(values: Record<string, FilterValue>): string {
         `${propRef(prop)} >= ${value.min} && ${propRef(prop)} <= ${value.max}`
       );
     } else if (value.filterType === "text" && value.value) {
-      predicates.push(`${propRef(prop)} =~ /${escapeRegex(value.value)}/i`);
+      // Visualizer's expression evaluator doesn't handle the =~ regex operator
+      // reliably, so do the substring match in JS: find the property values that
+      // contain the query and OR them together with === (which is supported).
+      const query = value.value.toLowerCase();
+      const matches = Array.from(
+        new Set(valuesFor(prop).map((v) => String(v)))
+      ).filter((v) => v.toLowerCase().includes(query));
+      predicates.push(
+        matches.length
+          ? `(${matches
+              .map((m) => `${propRef(prop)} === ${JSON.stringify(m)}`)
+              .join(" || ")})`
+          : "false"
+      );
     }
   }
   return predicates.join(" && ");
@@ -167,8 +175,8 @@ function restoreLayerVisibility(layerId: string | undefined): void {
       polyline: { show: true },
       model: { show: true },
     });
-  } catch {
-    return;
+  } catch (error) {
+    console.error("Failed to restore layer visibility:", error);
   }
 }
 
@@ -195,10 +203,10 @@ function applyFilters(values: Record<string, FilterValue>): void {
       model: { show },
     });
     activeFilterLayerId = layerId;
-  } catch {
-    // Overriding can fail (e.g. unsupported appearance); per the ticket, leave
-    // the layer unchanged rather than crash the map.
-    return;
+  } catch (error) {
+    // Overriding can fail (e.g. unsupported appearance); log it and leave the
+    // layer unchanged rather than crash the map (per the ticket).
+    console.error("Failed to apply layer filter:", error);
   }
 }
 
@@ -231,8 +239,13 @@ function handleLayerSelect(): void {
 try {
   reearth.extension.on("message", handleUIMessage);
   reearth.layers.on("select", handleLayerSelect);
+  // Rebuild the panel when the widget Inspector config changes, so the user
+  // doesn't have to reload the page or reselect a feature.
+  reearth.ui.on("update", () => {
+    pushPanelState();
+  });
   // Bootstrap the first render via the __init__ channel (see index.html).
   reearth.ui.postMessage({ action: INIT_ACTION, payload: computePanelState() });
-} catch {
-  // Swallow: the plugin simply renders nothing rather than crashing.
+} catch (error) {
+  console.error("Layer filter plugin failed to start:", error);
 }
