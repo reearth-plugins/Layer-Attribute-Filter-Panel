@@ -239,11 +239,6 @@ function handleLayerSelect(): void {
 try {
   reearth.extension.on("message", handleUIMessage);
   reearth.layers.on("select", handleLayerSelect);
-  // Rebuild the panel when the widget Inspector config changes, so the user
-  // doesn't have to reload the page or reselect a feature.
-  reearth.ui.on("update", () => {
-    pushPanelState();
-  });
   // Bootstrap the first render via the __init__ channel (see index.html).
   reearth.ui.postMessage({ action: INIT_ACTION, payload: computePanelState() });
 } catch (error) {
