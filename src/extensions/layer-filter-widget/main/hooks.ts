@@ -64,12 +64,19 @@ export default function useLayerFilterPanel() {
     }));
   }, []);
 
-  const setRange = useCallback((prop: string, min: number, max: number) => {
-    setValues((prev) => ({
-      ...prev,
-      [prop]: { filterType: "range", min, max },
-    }));
-  }, []);
+  const setRange = useCallback(
+    (prop: string, part: "min" | "max", n: number) => {
+      setValues((prev) => {
+        const current = prev[prop];
+        const base =
+          current?.filterType === "range"
+            ? current
+            : { filterType: "range" as const, min: 0, max: 0 };
+        return { ...prev, [prop]: { ...base, [part]: n } };
+      });
+    },
+    []
+  );
 
   const setText = useCallback((prop: string, value: string) => {
     setValues((prev) => ({ ...prev, [prop]: { filterType: "text", value } }));
