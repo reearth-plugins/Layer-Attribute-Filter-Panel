@@ -12,7 +12,7 @@ import { GlobalThis } from "@/shared/reearthTypes";
 
 const reearth = (globalThis as unknown as GlobalThis).reearth;
 
-reearth.ui.show(html);
+reearth.ui.show(html, { width: 300 });
 
 /** Shape of the inspector configuration this widget reads (see reearth.yml). */
 type WidgetProperty = {
@@ -24,6 +24,9 @@ type WidgetProperty = {
 type ComputedFeatureLike = { id?: string; properties?: Record<string, unknown> };
 
 const FILTER_TYPES: FilterType[] = ["dropdown", "range", "text"];
+
+/** The layer that currently has a filter override applied, if any. */
+let activeFilterLayerId: string | undefined;
 
 function widgetProperty(): WidgetProperty | undefined {
   return reearth.extension.widget?.property as WidgetProperty | undefined;
@@ -60,6 +63,10 @@ function parseFilterConfigs(): FilterConfig[] {
 
 function selectedFeatures(): ComputedFeatureLike[] {
   return (reearth.layers.selected?.features ?? []) as ComputedFeatureLike[];
+}
+
+function selectedLayerId(): string | undefined {
+  return reearth.layers.selected?.id as string | undefined;
 }
 
 /** Collect the non-empty values of one property across all features. */
@@ -124,11 +131,6 @@ function propRef(name: string): string {
   return "${" + name + "}";
 }
 
-function escapeRegex(value: string): string {
-  // Include "/" so a value like "foo/bar" can't terminate the /.../ literal early.
-  return value.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
-}
-
 /** Combine the active filter values into a single boolean show-expression. */
 function buildPredicate(values: Record<string, FilterValue>): string {
   const predicates: string[] = [];
@@ -140,14 +142,42 @@ function buildPredicate(values: Record<string, FilterValue>): string {
         `${propRef(prop)} >= ${value.min} && ${propRef(prop)} <= ${value.max}`
       );
     } else if (value.filterType === "text" && value.value) {
-      predicates.push(`${propRef(prop)} =~ /${escapeRegex(value.value)}/i`);
+      // Visualizer's expression evaluator doesn't handle the =~ regex operator
+      // reliably, so do the substring match in JS: find the property values that
+      // contain the query and OR them together with === (which is supported).
+      const query = value.value.toLowerCase();
+      const matches = Array.from(
+        new Set(valuesFor(prop).map((v) => String(v)))
+      ).filter((v) => v.toLowerCase().includes(query));
+      predicates.push(
+        matches.length
+          ? `(${matches
+              .map((m) => `${propRef(prop)} === ${JSON.stringify(m)}`)
+              .join(" || ")})`
+          : "false"
+      );
     }
   }
   return predicates.join(" && ");
 }
 
-function selectedLayerId(): string | undefined {
-  return reearth.layers.selected?.id as string | undefined;
+/**
+ * Restore a layer to full visibility. We explicitly force show=true on every
+ * appearance type rather than passing null to override(), because a null
+ * override does not reliably cancel a previously applied show-expression.
+ */
+function restoreLayerVisibility(layerId: string | undefined): void {
+  if (!layerId) return;
+  try {
+    reearth.layers.override?.(layerId, {
+      marker: { show: true },
+      polygon: { show: true },
+      polyline: { show: true },
+      model: { show: true },
+    });
+  } catch (error) {
+    console.error("Failed to restore layer visibility:", error);
+  }
 }
 
 function applyFilters(values: Record<string, FilterValue>): void {
@@ -156,8 +186,8 @@ function applyFilters(values: Record<string, FilterValue>): void {
   const predicate = buildPredicate(values);
   try {
     if (!predicate) {
-      // No active constraints — clear any existing override.
-      reearth.layers.override?.(layerId, null);
+      restoreLayerVisibility(layerId);
+      activeFilterLayerId = undefined;
       return;
     }
     const conditions: [string, string][] = [
@@ -172,37 +202,45 @@ function applyFilters(values: Record<string, FilterValue>): void {
       polyline: { show },
       model: { show },
     });
-  } catch {
-    // Overriding can fail (e.g. unsupported appearance); per the ticket, leave
-    // the layer unchanged rather than crash the map.
-    return;
+    activeFilterLayerId = layerId;
+  } catch (error) {
+    // Overriding can fail (e.g. unsupported appearance); log it and leave the
+    // layer unchanged rather than crash the map (per the ticket).
+    console.error("Failed to apply layer filter:", error);
   }
 }
 
 function resetFilters(): void {
-  const layerId = selectedLayerId();
-  if (!layerId) return;
-  try {
-    reearth.layers.override?.(layerId, null);
-  } catch {
-    return;
-  }
+  restoreLayerVisibility(selectedLayerId());
+  activeFilterLayerId = undefined;
 }
 
 // Handle Apply / Reset coming from the UI.
-reearth.extension.on("message", (message: unknown) => {
+function handleUIMessage(message: unknown): void {
   const msg = message as {
     action?: string;
     payload?: { values?: Record<string, FilterValue> };
   };
   if (msg?.action === "apply") applyFilters(msg.payload?.values ?? {});
   else if (msg?.action === "reset") resetFilters();
-});
+}
 
-// Rebuild the panel whenever the selected layer changes.
-reearth.layers.on("select", () => {
+// When the selection changes to a different layer, reset everything: clear the
+// previously filtered layer's override and rebuild the panel for the new layer.
+function handleLayerSelect(): void {
+  if (activeFilterLayerId && activeFilterLayerId !== selectedLayerId()) {
+    restoreLayerVisibility(activeFilterLayerId);
+    activeFilterLayerId = undefined;
+  }
   pushPanelState();
-});
+}
 
-// Bootstrap the first render via the __init__ channel (see index.html).
-reearth.ui.postMessage({ action: INIT_ACTION, payload: computePanelState() });
+// Guard startup so a failure here never takes down the map or sibling plugins.
+try {
+  reearth.extension.on("message", handleUIMessage);
+  reearth.layers.on("select", handleLayerSelect);
+  // Bootstrap the first render via the __init__ channel (see index.html).
+  reearth.ui.postMessage({ action: INIT_ACTION, payload: computePanelState() });
+} catch (error) {
+  console.error("Layer filter plugin failed to start:", error);
+}
